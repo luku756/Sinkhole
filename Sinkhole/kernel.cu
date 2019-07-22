@@ -1,121 +1,91 @@
+#include "kernel.h"
+#include "graphic.h"
+#define TX 32
+#define TY 32
 
-#include "cuda_runtime.h"
-#include "device_launch_parameters.h"
-
-#include <stdio.h>
-
-cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size);
-
-__global__ void addKernel(int *c, const int *a, const int *b)
-{
-    int i = threadIdx.x;
-    c[i] = a[i] + b[i];
+//GPU (커널) 내에서만 호출 가능한 GPU 내부 함수.
+__device__ unsigned char clip(int n) {
+	return n > 255 ? 255 : (n < 0 ? 0 : n); // 최대 255, 최소 0으로 한정. 색상 범위
 }
 
-int main()
+//cpu에서 호출 가능한, GPU에서 동작하는 커널 함수.
+__global__ void distanceKernel(uchar4 *d_out, int w, int h, int2 pos)
 {
-    const int arraySize = 5;
-    const int a[arraySize] = { 1, 2, 3, 4, 5 };
-    const int b[arraySize] = { 10, 20, 30, 40, 50 };
-    int c[arraySize] = { 0 };
+	const int c = blockIdx.x * blockDim.x + threadIdx.x;	//블록의 id * 블록의 수 + 블록 내에서의 thread id
+	const int r = blockIdx.y * blockDim.y + threadIdx.y;	//블록의 id * 블록의 수 + 블록 내에서의 thread id
+	//thread는 500*500 개 실행되는게 아니라, 512*512개 실행된다.(TX, TY의 배수) 
+	//원하는 범위 밖의 데이터는 계산하지 않는다.
+	if ((c >= w) || (r >= h)) return;
+	const int i = r * w + c;	//전체 thread 에서의 순서(id)
+	//pos 와 자신(c,r) 과의 거리를 계산
+	const int dist = sqrtf((c - pos.x)*(c - pos.x) + (r - pos.y)*(r - pos.y));
 
-    // Add vectors in parallel.
-    cudaError_t cudaStatus = addWithCuda(c, a, b, arraySize);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "addWithCuda failed!");
-        return 1;
-    }
-
-    printf("{1,2,3,4,5} + {10,20,30,40,50} = {%d,%d,%d,%d,%d}\n",
-        c[0], c[1], c[2], c[3], c[4]);
-
-    // cudaDeviceReset must be called before exiting in order for profiling and
-    // tracing tools such as Nsight and Visual Profiler to show complete traces.
-    cudaStatus = cudaDeviceReset();
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaDeviceReset failed!");
-        return 1;
-    }
-
-    return 0;
+	//255-d를 최대 255, 최소 0으로 자른다. d가 255 이상이면 0.
+	const unsigned char intensity = clip(255 - dist);
+	d_out[i].x = intensity;	//R
+	d_out[i].y = intensity;	//G
+	d_out[i].z = 0;			//B
+	d_out[i].w = 255;		//A (불투명)	
 }
 
-// Helper function for using CUDA to add vectors in parallel.
-cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size)
+//커널을 호출하는 CPU 함수. 
+void kernelLauncher(uchar4 *d_out, int w, int h, int2 pos) {
+
+	//블록의 크기. 가로가 TX개, 세로가 TY개
+	const dim3 blockSize(TX, TY);
+
+	//grid, 즉 thread block의 수. 블록이 grid.x * grid.y 개 존재.
+	const dim3 gridSize = dim3((w + TX - 1) / TX, (h + TY - 1) / TY);
+
+	//커널 함수 호출. blockSize 크기의 thread block을, gridSize 만큼 사용한다.
+	//공통된 함수 인자로는 GPU 메모리 포인터, 가로, 세로, 기준점
+	//distanceKernel << <gridSize, blockSize >> > (d_out, w, h, pos);
+}
+
+
+
+//cpu에서 호출 가능한, GPU에서 동작하는 커널 함수.
+__global__ void starKernel(POS *pos, POS* vel, int w, int h, int screenW,int screenH)
 {
-    int *dev_a = 0;
-    int *dev_b = 0;
-    int *dev_c = 0;
-    cudaError_t cudaStatus;
+	const int c = blockIdx.x * blockDim.x + threadIdx.x;	//블록의 id * 블록의 수 + 블록 내에서의 thread id
+	const int r = blockIdx.y * blockDim.y + threadIdx.y;	//블록의 id * 블록의 수 + 블록 내에서의 thread id
+	//thread는 500*500 개 실행되는게 아니라, 512*512개 실행된다.(TX, TY의 배수) 
+	//원하는 범위 밖의 데이터는 계산하지 않는다.
+	if ((c >= w) || (r >= h)) return;
+	const int i = r * w + c;	//전체 thread 에서의 순서(id)
 
-    // Choose which GPU to run on, change this on a multi-GPU system.
-    cudaStatus = cudaSetDevice(0);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
-        goto Error;
-    }
+	pos[i].x += vel[i].x;
+	pos[i].y += vel[i].y;
 
-    // Allocate GPU buffers for three vectors (two input, one output)    .
-    cudaStatus = cudaMalloc((void**)&dev_c, size * sizeof(int));
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed!");
-        goto Error;
-    }
+	if (pos[i].x > screenW || pos[i].x < 0)
+		pos[i].x = screenW / 2;
+	if (pos[i].y > screenH || pos[i].y < 0)
+		pos[i].y = screenH / 2;
 
-    cudaStatus = cudaMalloc((void**)&dev_a, size * sizeof(int));
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed!");
-        goto Error;
-    }
+	////pos 와 자신(c,r) 과의 거리를 계산
+	//const int dist = sqrtf((c - pos.x)*(c - pos.x) + (r - pos.y)*(r - pos.y));
 
-    cudaStatus = cudaMalloc((void**)&dev_b, size * sizeof(int));
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed!");
-        goto Error;
-    }
+	////255-d를 최대 255, 최소 0으로 자른다. d가 255 이상이면 0.
+	//const unsigned char intensity = clip(255 - dist);
+	//d_out[i].x = intensity;	//R
+	//d_out[i].y = intensity;	//G
+	//d_out[i].z = 0;			//B
+	//d_out[i].w = 255;		//A (불투명)	
+}
 
-    // Copy input vectors from host memory to GPU buffers.
-    cudaStatus = cudaMemcpy(dev_a, a, size * sizeof(int), cudaMemcpyHostToDevice);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy failed!");
-        goto Error;
-    }
+//커널을 호출하는 CPU 함수. 
+void kernelLauncher_star(POS *pos, POS* vel, int w, int h, int screenW, int screenH) {
 
-    cudaStatus = cudaMemcpy(dev_b, b, size * sizeof(int), cudaMemcpyHostToDevice);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy failed!");
-        goto Error;
-    }
+	
 
-    // Launch a kernel on the GPU with one thread for each element.
-    addKernel<<<1, size>>>(dev_c, dev_a, dev_b);
+	//블록의 크기. 가로가 TX개, 세로가 TY개
+	const dim3 blockSize(TX, TY);
 
-    // Check for any errors launching the kernel
-    cudaStatus = cudaGetLastError();
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "addKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
-        goto Error;
-    }
-    
-    // cudaDeviceSynchronize waits for the kernel to finish, and returns
-    // any errors encountered during the launch.
-    cudaStatus = cudaDeviceSynchronize();
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
-        goto Error;
-    }
+	//grid, 즉 thread block의 수. 블록이 grid.x * grid.y 개 존재.
+	const dim3 gridSize = dim3((w + TX - 1) / TX, (h + TY - 1) / TY);
 
-    // Copy output vector from GPU buffer to host memory.
-    cudaStatus = cudaMemcpy(c, dev_c, size * sizeof(int), cudaMemcpyDeviceToHost);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy failed!");
-        goto Error;
-    }
-
-Error:
-    cudaFree(dev_c);
-    cudaFree(dev_a);
-    cudaFree(dev_b);
-    
-    return cudaStatus;
+	//커널 함수 호출. blockSize 크기의 thread block을, gridSize 만큼 사용한다.
+	//공통된 함수 인자로는 GPU 메모리 포인터, 가로, 세로, 기준점
+	//starKernel << <gridSize, blockSize >> > (pos, vel, w, h);
+	starKernel KERNEL_ARGS2(gridSize, blockSize) (pos, vel, w, h, screenW , screenH);
 }
