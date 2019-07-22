@@ -17,6 +17,5 @@
 struct uchar4;
 struct int2;
 
-void kernelLauncher(uchar4 *d_out, int w, int h, int2 pos);
 void kernelLauncher_star(POS *pos, POS* vel, int w, int h, int screenW, int screenH);
 #endif

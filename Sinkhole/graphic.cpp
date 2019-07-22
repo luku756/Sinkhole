@@ -8,7 +8,7 @@
 #define MAXHEIGHT 1024
 
 #define MINSPEED 1
-#define MAXSPEED 1
+#define MAXSPEED 10
 
 struct cudaGraphicsResource *cuda_pos_resource;	//openGL의 pixel buffer와 연결하기 위한 변수.
 struct cudaGraphicsResource *cuda_vel_resource;	//openGL의 pixel buffer와 연결하기 위한 변수.
@@ -82,53 +82,48 @@ void initialStar(int size, int w, int h) {
 */
 		speed = (rand() / (float)RAND_MAX) * (float)(MAXSPEED - MINSPEED) + MINSPEED;	//속력. 순수하게 크기
 
-		speed = 2;
+		init_vel[vel_idx++] = speed;
+
+		speed = (rand() / (float)RAND_MAX) * (float)(MAXSPEED - MINSPEED) + MINSPEED;	//속력. 순수하게 크기
+		init_vel[vel_idx++] = speed / 10;
+		//speed = 2;
 		
-		float x, y, l, theta, c;
-		POS vec;
-		x = init_pos[pos_idx++] - mid.x;
-		y = init_pos[pos_idx++] - mid.y;
+		//float x, y, c;
+		//POS vec;
+		//x = init_pos[pos_idx++] - mid.x;
+		//y = init_pos[pos_idx++] - mid.y;
 
-		//원점을 중심으로 직각으로 움직이는 방향의 벡터(x축이나 y축까지 이동)
-		if (x == 0) {//y축
-			vec.x = speed;
-			if (y > 0)
-				vec.x *= -1;
-			vec.y = 0;
-		}
-		else if (y == 0) {//x축
-			vec.x = 0;
-			vec.y = speed;
-			if (x > 0)
-				vec.y *= -1;
-		}
-		else if (x > 0 && y > 0 || x < 0 && y < 0) {//1, 3사분면. (c,0)
-			c = (x * x + y * y) / x;
-			vec.x = c-x;
-			vec.y = -y;
-			posSizeFIx(vec, speed);
-		}
-		else if (x > 0 && y < 0 || x < 0 && y > 0) {//2, 4사분면. (0,c),
-			c = (x * x + y * y) / y;
-			vec.x = -x;
-			vec.y = c-y;
-			posSizeFIx(vec, speed);
+		////원점을 중심으로 직각으로 움직이는 방향의 벡터(x축이나 y축까지 이동)
+		//if (x == 0) {//y축
+		//	vec.x = speed;
+		//	if (y > 0)
+		//		vec.x *= -1;
+		//	vec.y = 0;
+		//}
+		//else if (y == 0) {//x축
+		//	vec.x = 0;
+		//	vec.y = speed;
+		//	if (x > 0)
+		//		vec.y *= -1;
+		//}
+		//else if (x > 0 && y > 0 || x < 0 && y < 0) {//1, 3사분면. (c,0)
+		//	c = (x * x + y * y) / x;
+		//	vec.x = c-x;
+		//	vec.y = -y;
+		//	posSizeFIx(vec, speed);
+		//}
+		//else if (x > 0 && y < 0 || x < 0 && y > 0) {//2, 4사분면. (0,c),
+		//	c = (x * x + y * y) / y;
+		//	vec.x = -x;
+		//	vec.y = c-y;
+		//	posSizeFIx(vec, speed);
+		//}
 
-		}
-		else {
-			vec.x = 0;
-			vec.y = 0;
-		}
+		//init_vel[vel_idx++] = vec.x;
+		//init_vel[vel_idx++] = vec.y;
 
-		//l = sqrt(x*x + y * y);
-		//theta = acos(x / l);
 
-		init_vel[vel_idx++] = vec.x;
-		init_vel[vel_idx++] = vec.y;
-
-		//init_vel[vel_idx++] = speed;
-		//init_vel[vel_idx++] = speed;
-		
+				
 	//	printf("[%d] vel : %f,%f\n",i, init_vel[vel_idx-2], init_vel[vel_idx-1]);
 	}
 
@@ -165,7 +160,7 @@ void initialStar(int size, int w, int h) {
 
 
 void drawStars() {
-	glPointSize(3.0f);
+	glPointSize(1.0f);
 	// 정점의 size 조절 
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 

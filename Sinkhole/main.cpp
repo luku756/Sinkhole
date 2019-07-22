@@ -23,15 +23,6 @@ GLuint tex = 0; // OpenGL texture object
 struct cudaGraphicsResource *cuda_pbo_resource;	//openGL의 pixel buffer와 연결하기 위한 변수.
 
 
-//cuda와 연동하여 그리기 위한 텍스쳐 생성.
-void render() {
-	uchar4 *d_out = 0;
-	cudaGraphicsMapResources(1, &cuda_pbo_resource, 0);
-	cudaGraphicsResourceGetMappedPointer((void **)&d_out, NULL,
-		cuda_pbo_resource);
-	kernelLauncher(d_out, W, H, loc);//cuda 커널 호출
-	cudaGraphicsUnmapResources(1, &cuda_pbo_resource, 0);
-}
 
 //텍스쳐를 입힌 사각형 그리기
 void drawTexture() {
